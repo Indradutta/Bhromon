@@ -1,0 +1,400 @@
+// Prisma schema for BHROMON Travel Platform & Integrated CRM
+// Shared single database for public website and administrative CRM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------------
+// 1. ADMIN & SECURITY (Strict Single Administrator Model)
+// -------------------------------------------------------------
+model Admin {
+  id                String      @id @default(cuid())
+  name              String
+  email             String      @unique
+  passwordHash      String
+  role              String      @default("SUPER_ADMIN")
+  status            String      @default("ACTIVE")
+  avatarUrl         String?
+  phone             String?
+  lastLoginAt       DateTime?
+  resetToken        String?
+  resetTokenExpires DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  auditLogs         AuditLog[]
+}
+
+model AdminSettings {
+  id                          String   @id @default(cuid())
+  companyName                 String   @default("BHROMON")
+  companyEmail                String   @default("contact@bhromon.com")
+  companyPhone                String   @default("+91 98765 43210")
+  companyAddress              String?
+  taxGstPercentage            Float    @default(5.0)
+  defaultCommissionPercentage Float    @default(10.0)
+  currency                    String   @default("INR")
+  updatedAt                   DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  adminId    String?
+  admin      Admin?   @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  action     String   // e.g. "LOGIN", "CREATE_PACKAGE", "UPDATE_ENQUIRY", "GENERATE_INVOICE"
+  entityType String   // e.g. "AUTH", "PACKAGE", "ENQUIRY", "BOOKING", "QUOTATION"
+  entityId   String?
+  details    String?  // JSON formatted details
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+}
+
+// -------------------------------------------------------------
+// 2. DESTINATIONS & PACKAGES
+// -------------------------------------------------------------
+model Destination {
+  id          String        @id @default(cuid())
+  name        String        @unique
+  slug        String        @unique
+  region      String
+  state       String?
+  country     String        @default("India")
+  heroImage   String?
+  description String?
+  isPopular   Boolean       @default(false)
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  packages    TourPackage[]
+  hotels      Hotel[]
+}
+
+model TourPackage {
+  id              String         @id @default(cuid())
+  legacyId        Int?           @unique
+  title           String
+  slug            String         @unique
+  destinationId   String?
+  destinationRel  Destination?   @relation(fields: [destinationId], references: [id], onDelete: SetNull)
+  destinationText String
+  region          String
+  type            String         // e.g. "Spiritual", "Cultural", "Wildlife", "Trek", "Coastal"
+  category        String         // "Spiritual", "Cultural", "Wildlife", "Adventure", "Wellness"
+  durationDays    Int
+  durationText    String         // e.g. "7 Days / 6 Nights"
+  price           Float
+  rating          Float          @default(4.9)
+  reviewsCount    Int            @default(120)
+  availability    String         @default("Available") // "Available", "Limited", "Sold Out"
+  description     String
+  image           String
+  gallery         String?        // JSON string array
+  tags            String         // JSON string array
+  featured        Boolean        @default(false)
+  inclusions      String         // JSON string array
+  exclusions      String         // JSON string array
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  itinerary       ItineraryDay[]
+  packageHotels   PackageHotel[]
+  enquiries       Enquiry[]
+  quotations      Quotation[]
+  bookings        Booking[]
+}
+
+model ItineraryDay {
+  id          String      @id @default(cuid())
+  packageId   String
+  package     TourPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  dayNumber   Int
+  title       String
+  description String
+  meals       String?
+  activities  String?
+  createdAt   DateTime    @default(now())
+}
+
+model Hotel {
+  id                    String         @id @default(cuid())
+  name                  String
+  destinationId         String?
+  destination           Destination?   @relation(fields: [destinationId], references: [id], onDelete: SetNull)
+  city                  String
+  starRating            Int            @default(4)
+  address               String?
+  contactPhone          String?
+  contactEmail          String?
+  standardPricePerNight Float?
+  roomType              String         @default("Deluxe Room")
+  status                String         @default("ACTIVE") // ACTIVE, UNDER_RENOVATION, INACTIVE
+  amenities             String?        // JSON array
+  images                String?        // JSON array
+  notes                 String?        // Description
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  packageHotels         PackageHotel[]
+}
+
+model PackageHotel {
+  id        String      @id @default(cuid())
+  packageId String
+  package   TourPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  hotelId   String
+  hotel     Hotel       @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomType  String      @default("Standard Room")
+  mealPlan  String      @default("CP (Breakfast Included)")
+}
+
+// -------------------------------------------------------------
+// 3. CRM: CUSTOMERS & ENQUIRIES
+// -------------------------------------------------------------
+model Customer {
+  id                String             @id @default(cuid())
+  fullName          String
+  email             String
+  phone             String
+  alternatePhone    String?
+  city              String?
+  country           String             @default("India")
+  leadStatus        String             @default("NEW") // NEW, CONTACTED, QUALIFIED, CONVERTED, INACTIVE
+  source            String             @default("WEBSITE") // WEBSITE, WHATSAPP, REFERRAL, DIRECT
+  tags              String?            // JSON array
+  notes             String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  enquiries         Enquiry[]
+  quotations        Quotation[]
+  bookings          Booking[]
+  documents         CustomerDocument[]
+  communicationLogs CommunicationLog[]
+}
+
+model Enquiry {
+  id                String             @id @default(cuid())
+  enquiryNumber     String             @unique // ENQ-2026-0001
+  customerId        String?
+  customer          Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerName      String
+  email             String
+  phone             String
+  packageId         String?
+  package           TourPackage?       @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  destination       String?
+  travelDate        String?
+  travellersCount   Int                @default(2)
+  adultsCount       Int                @default(2)
+  childrenCount     Int                @default(0)
+  budget            String?
+  category          String?            @default("tours") // tours, hotels, activities, customTrip
+  message           String?
+  source            String             @default("WEBSITE") // WEBSITE, WHATSAPP, PHONE, DIRECT
+  status            String             @default("NEW") // NEW, CONTACTED, QUOTED, NEGOTIATING, CONVERTED, CLOSED_LOST
+  priority          String             @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  assignedTo        String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  followUps         FollowUp[]
+  quotations        Quotation[]
+  bookings          Booking[]
+  communicationLogs CommunicationLog[]
+}
+
+model FollowUp {
+  id          String    @id @default(cuid())
+  enquiryId   String
+  enquiry     Enquiry   @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  type        String    @default("CALL") // CALL, EMAIL, WHATSAPP, MEETING
+  notes       String
+  status      String    @default("PENDING") // PENDING, COMPLETED, CANCELLED
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+// -------------------------------------------------------------
+// 4. CRM: QUOTATIONS, BOOKINGS & PAYMENTS
+// -------------------------------------------------------------
+model Quotation {
+  id                 String       @id @default(cuid())
+  quotationNumber    String       @unique // QTN-2026-0001
+  customerId         String
+  customer           Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  enquiryId          String?
+  enquiry            Enquiry?     @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
+  packageId          String?
+  package            TourPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  title              String
+  travelDate         DateTime?
+  durationDays       Int          @default(7)
+  numberOfTravellers Int          @default(2)
+  basePrice          Float
+  discountAmount     Float        @default(0)
+  taxPercentage      Float        @default(5.0)
+  taxAmount          Float
+  grandTotal         Float
+  validUntil         DateTime?
+  status             String       @default("DRAFT") // DRAFT, SENT, ACCEPTED, REJECTED, EXPIRED
+  inclusions         String?      // JSON array
+  exclusions         String?      // JSON array
+  terms              String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  bookings           Booking[]
+}
+
+model Booking {
+  id               String             @id @default(cuid())
+  bookingNumber    String             @unique // BKG-2026-0001
+  customerId       String
+  customer         Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  enquiryId        String?
+  enquiry          Enquiry?           @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
+  quotationId      String?
+  quotation        Quotation?         @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  packageId        String?
+  package          TourPackage?       @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  startDate        DateTime
+  endDate          DateTime
+  numberOfAdults   Int                @default(2)
+  numberOfChildren Int                @default(0)
+  totalAmount      Float
+  paidAmount       Float              @default(0)
+  balanceAmount    Float
+  status           String             @default("CONFIRMED") // PENDING, CONFIRMED, COMPLETED, CANCELLED
+  specialRequests  String?
+  guestManifest    String?            // JSON array of adult & children traveler details
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  payments         Payment[]
+  invoice          Invoice?
+  documents        CustomerDocument[]
+}
+
+model Payment {
+  id                   String   @id @default(cuid())
+  receiptNumber        String   @unique // REC-2026-0001
+  bookingId            String
+  booking              Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  amount               Float
+  paymentMethod        String   // UPI, NEFT, CARD, CASH, BANK_TRANSFER
+  transactionReference String?
+  paymentDate          DateTime @default(now())
+  status               String   @default("SUCCESS") // SUCCESS, PENDING, FAILED, REFUNDED
+  notes                String?
+  createdAt            DateTime @default(now())
+}
+
+model Invoice {
+  id            String    @id @default(cuid())
+  invoiceNumber String    @unique // INV-2026-0001
+  bookingId     String    @unique
+  booking       Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  invoiceDate   DateTime  @default(now())
+  dueDate       DateTime?
+  subtotal      Float
+  taxAmount     Float
+  totalAmount   Float
+  paidAmount    Float     @default(0)
+  balanceDue    Float
+  status        String    @default("ISSUED") // DRAFT, ISSUED, PAID, PARTIALLY_PAID, VOID
+  pdfPath       String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// -------------------------------------------------------------
+// 5. CRM: PRIVATE DOCUMENTS & LOGS
+// -------------------------------------------------------------
+model CustomerDocument {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  bookingId    String?
+  booking      Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  documentType String   // PASSPORT, AADHAAR, VISA, FLIGHT_TICKET, VOUCHER, INSURANCE
+  fileName     String
+  filePath     String   // Stored securely in private directory outside web root
+  fileSize     Int
+  mimeType     String
+  uploadedAt   DateTime @default(now())
+}
+
+model CommunicationLog {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  enquiryId  String?
+  enquiry    Enquiry? @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
+  type       String   // EMAIL, SMS, WHATSAPP, CALL_NOTE
+  direction  String   @default("OUTBOUND") // OUTBOUND, INBOUND
+  subject    String?
+  content    String
+  status     String   @default("SENT") // SENT, DELIVERED, FAILED
+  createdAt  DateTime @default(now())
+}
+
+model Offer {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  title            String
+  description      String?
+  discountType     String   // PERCENTAGE, FLAT
+  discountValue    Float
+  minBookingAmount Float?
+  validFrom        DateTime
+  validUntil       DateTime
+  maxUses          Int?
+  usedCount        Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+}
+
+// -------------------------------------------------------------
+// 6. CONTENT: BLOG, REVIEWS, MEDIA
+// -------------------------------------------------------------
+model BlogArticle {
+  id            String   @id @default(cuid())
+  title         String
+  slug          String   @unique
+  summary       String
+  content       String
+  featuredImage String
+  authorName    String   @default("Bhromon Editorial")
+  readTime      String   @default("5 min read")
+  tags          String   // JSON array
+  isPublished   Boolean  @default(true)
+  publishedAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Testimonial {
+  id         String   @id @default(cuid())
+  authorName String
+  location   String
+  avatar     String?
+  rating     Int      @default(5)
+  tourTitle  String?
+  reviewText String
+  isApproved Boolean  @default(true)
+  isFeatured Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+model MediaAsset {
+  id           String   @id @default(cuid())
+  fileName     String
+  originalName String
+  mimeType     String
+  size         Int
+  url          String
+  altText      String?
+  createdAt    DateTime @default(now())
+}
